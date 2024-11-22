@@ -90,7 +90,7 @@ public class JavaPluginLoader implements PluginLoader {
     URL pluginJarUrl = candidate.getSource().orElseThrow(
         () -> new InvalidPluginException("Description provided does not have a source path")
     ).toUri().toURL();
-    PluginClassLoader loader = new PluginClassLoader(new URL[]{pluginJarUrl});
+    PluginClassLoader loader = new PluginClassLoader(candidate.getId(), new URL[]{pluginJarUrl});
     loader.addToClassloaders();
 
     JavaVelocityPluginDescriptionCandidate candidateInst =
