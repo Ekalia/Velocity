@@ -37,8 +37,8 @@ public class PluginClassLoader extends URLClassLoader {
     ClassLoader.registerAsParallelCapable();
   }
 
-  public PluginClassLoader(URL[] urls) {
-    super(urls, Velocity.class.getClassLoader());
+  public PluginClassLoader(String name, URL[] urls) {
+    super("pluginclassloader-" + name, urls, Velocity.class.getClassLoader());
   }
 
   public void addToClassloaders() {
@@ -66,6 +66,17 @@ public class PluginClassLoader extends URLClassLoader {
 
   private Class<?> loadClass0(String name, boolean resolve, boolean checkOther)
       throws ClassNotFoundException {
+    if (checkOther) {
+      for (PluginClassLoader loader : loaders) {
+        if (loader != this) {
+          Class<?> loadedClass = loader.findLoadedClass(name);
+          if (loadedClass != null) {
+            return loadedClass;
+          }
+        }
+      }
+    }
+
     try {
       return super.loadClass(name, resolve);
     } catch (ClassNotFoundException ignored) {
