@@ -18,8 +18,12 @@
 package com.velocitypowered.proxy;
 
 import com.velocitypowered.proxy.util.VelocityProperties;
+import fr.ekalia.dependencyloader.DependenciesLoader;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakDetector.Level;
+
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.text.DecimalFormat;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
@@ -32,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 public class Velocity {
 
   private static final Logger logger;
+  private static URLClassLoader mainClassLoader;
 
   static {
     System.setProperty("java.util.logging.manager", "org.apache.logging.log4j.jul.LogManager");
@@ -59,7 +64,33 @@ public class Velocity {
    *
    * @param args the arguments to the proxy
    */
-  public static void main(String... args) {
+  public static void main(String... args) throws InterruptedException {
+    URL[] urls = DependenciesLoader.process();
+
+    final ClassLoader parentClassLoader = Velocity.class.getClassLoader();
+    Velocity.mainClassLoader = new URLClassLoader(urls, parentClassLoader);
+
+    Thread thread = new Thread(() -> {
+      try {
+        start(args);
+      } catch (Throwable t) {
+        logger.error("An exception occurred", t);
+      } finally {
+        try {
+          Velocity.mainClassLoader.close();
+        } catch (Throwable t) {
+          logger.error("An exception occurred while closing the classloader", t);
+        }
+      }
+    });
+    thread.setName("Velocity Main Thread");
+    thread.setContextClassLoader(Velocity.mainClassLoader);
+    thread.start();
+
+    thread.join();
+  }
+
+  private static void start(String... args) {
     final ProxyOptions options = new ProxyOptions(args);
     if (options.isHelp()) {
       return;
@@ -80,5 +111,9 @@ public class Velocity {
     // need to wait, otherwise the JVM will reap us as no non-daemon threads will be active once the
     // main thread exits.
     server.awaitProxyShutdown();
+  }
+
+  public static ClassLoader getClassLoader() {
+    return Velocity.mainClassLoader;
   }
 }
