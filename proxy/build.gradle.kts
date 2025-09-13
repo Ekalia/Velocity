@@ -14,6 +14,10 @@ application {
 }
 
 tasks {
+    withType<Checkstyle> {
+        exclude("**/fr/ekalia/**")
+    }
+
     jar {
         manifest {
             attributes["Implementation-Title"] = "Velocity"
@@ -147,6 +151,8 @@ dependencies {
     implementation(libs.netty.transport.native.kqueue)
     implementation(variantOf(libs.netty.transport.native.kqueue) { classifier("osx-x86_64") })
     implementation(variantOf(libs.netty.transport.native.kqueue) { classifier("osx-aarch_64") })
+
+    implementation(libs.jeka)
 
     implementation(libs.jopt)
     implementation(libs.terminalconsoleappender)

@@ -38,7 +38,7 @@ public class PluginClassLoader extends URLClassLoader {
   }
 
   public PluginClassLoader(String name, URL[] urls) {
-    super("pluginclassloader-" + name, urls, Velocity.class.getClassLoader());
+    super("pluginclassloader-" + name, urls, Velocity.getClassLoader());
   }
 
   public void addToClassloaders() {
