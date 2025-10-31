@@ -19,16 +19,24 @@ package fr.ekalia.dependencyloader;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
-import dev.jeka.core.api.depmanagement.JkCoordinateDependency;
-import dev.jeka.core.api.depmanagement.JkDependency;
-import dev.jeka.core.api.depmanagement.JkDependencySet;
-import dev.jeka.core.api.depmanagement.JkRepo;
-import dev.jeka.core.api.depmanagement.JkRepoSet;
-import dev.jeka.core.api.depmanagement.resolution.JkDependencyResolver;
-import dev.jeka.core.api.depmanagement.resolution.JkResolutionParameters;
-import dev.jeka.core.api.depmanagement.resolution.JkResolveResult;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
+import org.eclipse.aether.AbstractRepositoryListener;
+import org.eclipse.aether.DefaultRepositorySystemSession;
+import org.eclipse.aether.RepositoryEvent;
+import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.artifact.Artifact;
+import org.eclipse.aether.artifact.DefaultArtifact;
+import org.eclipse.aether.collection.CollectRequest;
+import org.eclipse.aether.graph.Dependency;
+import org.eclipse.aether.repository.Authentication;
+import org.eclipse.aether.repository.LocalRepository;
+import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.repository.RepositoryPolicy;
+import org.eclipse.aether.resolution.DependencyRequest;
+import org.eclipse.aether.resolution.DependencyResolutionException;
+import org.eclipse.aether.resolution.DependencyResult;
+import org.eclipse.aether.supplier.RepositorySystemSupplier;
+import org.eclipse.aether.util.repository.AuthenticationBuilder;
 
 import java.io.File;
 import java.io.FileReader;
@@ -36,6 +44,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,30 +60,37 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class DependenciesLoader {
 
     private static final Logger LOGGER = LogManager.getLogger(DependenciesLoader.class);
 
     private static final String DEPENDENCIES_FILE_NAME = "dependencies.json";
     private static final String REPOSITORIES_FILE_NAME = "repositories.json";
+    private static final String DEFAULT_REPO_TYPE = "default";
     private static final Gson GSON = new Gson();
 
     public static URL[] process() {
-        // Hack to set jeka user home
-        String jekaUserHome = System.getenv("JEKA_USER_HOME");
-        if (jekaUserHome == null || jekaUserHome.isEmpty()) {
-            File dependenciesRoot = new File("/dependencies");
-            if (dependenciesRoot.isDirectory()) {
-                System.setProperty("user.home", dependenciesRoot.getAbsolutePath());
-            }
+        File localRepo = new File("/dependencies");
+        if (System.getenv("LOCAL_REPOSITORY") != null) {
+            localRepo = new File(System.getenv("LOCAL_REPOSITORY"));
+        }
+
+        if (!localRepo.exists() || !localRepo.isDirectory()) {
+            DependenciesLoader.LOGGER.error("Could not use /dependencies directory and LOCAL_REPOSITORY is not set");
+            System.exit(1);
         }
 
         List<URL> files = DependenciesLoader.loadDependencies(
                 new File("dependencies"),
-                new File("plugins")
+                new File("plugins"),
+                localRepo
         );
+        
         if (files == null) {
-            LOGGER.error("Failed to load dependencies");
+            DependenciesLoader.LOGGER.error("Failed to load dependencies");
             System.exit(1);
         }
 
@@ -82,16 +99,16 @@ public class DependenciesLoader {
 
         return newUrls;
     }
-
-    static List<URL> loadDependencies(File dependenciesDirectory, File pluginDirectory) {
+    
+    static List<URL> loadDependencies(File dependenciesDirectory, File pluginDirectory, File localRepositoryFolder) {
         // 0. Preconditions
         if (!dependenciesDirectory.exists()) {
             if (!dependenciesDirectory.mkdirs()) {
-                LOGGER.error("Could not create directory {}", dependenciesDirectory.getAbsolutePath());
+                DependenciesLoader.LOGGER.error("Could not create directory {}", dependenciesDirectory.getAbsolutePath());
                 return null;
             }
         } else if (!dependenciesDirectory.isDirectory()) {
-            LOGGER.error(String.format("%s is not a directory", dependenciesDirectory.getAbsolutePath()));
+            System.err.printf("%s is not a directory%n", dependenciesDirectory.getAbsolutePath());
             return null;
         } else {
             File repositoriesFile = new File(dependenciesDirectory, DependenciesLoader.REPOSITORIES_FILE_NAME);
@@ -102,36 +119,40 @@ public class DependenciesLoader {
                 try {
                     Files.copy(repositoriesFile.toPath(), rootRepositoriesFile.toPath());
                 } catch (IOException e) {
-                    LOGGER.error("Failed to copy {} to {}", repositoriesFile.getAbsolutePath(), rootRepositoriesFile.getAbsolutePath());
+                    DependenciesLoader.LOGGER.error("Failed to copy {} to {}", repositoriesFile.getAbsolutePath(), rootRepositoriesFile.getAbsolutePath());
                 }
             }
 
-            // Clear the old dependencies in case of a new version
-            delete(dependenciesDirectory);
-
-            if (!dependenciesDirectory.mkdir()) {
-                LOGGER.error("Could not recreate directory {}", dependenciesDirectory.getAbsolutePath());
-                return null;
-            }
+            DependenciesLoader.clear(dependenciesDirectory);
 
             if (rootRepositoriesFile.isFile()) {
                 try {
-                    Files.copy(rootRepositoriesFile.toPath(), repositoriesFile.toPath());
+                    Files.copy(rootRepositoriesFile.toPath(), repositoriesFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
-                    LOGGER.error("Failed to copy {} to {}", rootRepositoriesFile.getAbsolutePath(), repositoriesFile.getAbsolutePath());
+                    DependenciesLoader.LOGGER.error("Failed to copy {} to {}", rootRepositoriesFile.getAbsolutePath(), repositoriesFile.getAbsolutePath());
+                }
+            }
+
+            File sharedRepositoriesFile = new File(localRepositoryFolder, DependenciesLoader.REPOSITORIES_FILE_NAME);
+            if (sharedRepositoriesFile.isFile()) {
+                DependenciesLoader.LOGGER.info("Found shared repositories configuration file, using it");
+                try {
+                    Files.copy(sharedRepositoriesFile.toPath(), repositoriesFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    DependenciesLoader.LOGGER.error("Failed to copy {} to {}", sharedRepositoriesFile.getAbsolutePath(), repositoriesFile.getAbsolutePath());
                 }
             }
         }
 
         if (!pluginDirectory.exists() || !pluginDirectory.isDirectory()) {
-            LOGGER.error("Could not find plugin directory {}", pluginDirectory.getAbsolutePath());
+            DependenciesLoader.LOGGER.error("Could not find plugin directory {}", pluginDirectory.getAbsolutePath());
             return null;
         }
 
         // 1. Load list from plugins
         File[] pluginFiles = pluginDirectory.listFiles();
         if (pluginFiles == null) {
-            LOGGER.error("Could not list files in {}", pluginDirectory.getAbsolutePath());
+            DependenciesLoader.LOGGER.error("Could not list files in {}", pluginDirectory.getAbsolutePath());
             return null;
         }
 
@@ -151,16 +172,14 @@ public class DependenciesLoader {
                 try (InputStream inputStream = zipFile.getInputStream(dependenciesJsonEntry)) {
                     DependencyConfiguration dependencyConfiguration = DependenciesLoader.GSON.fromJson(new JsonReader(new InputStreamReader(inputStream)), DependencyConfiguration.class);
                     allLoadedConfigurations.add(dependencyConfiguration);
-
-                    LOGGER.info("Loaded dependencies configuration from {}", pluginFile.getName());
                 }
             } catch (Exception e) {
-                LOGGER.error("Failed to read dependencies file from {}", pluginFile.getName());
+                DependenciesLoader.LOGGER.error("Failed to read dependencies file from {}", pluginFile.getName());
             }
         }
 
         if (allLoadedConfigurations.isEmpty()) {
-            LOGGER.info("Didn't find any dependencies configuration");
+            DependenciesLoader.LOGGER.info("Didn't find any dependencies configuration");
             return List.of();
         }
 
@@ -170,41 +189,18 @@ public class DependenciesLoader {
         if (repositoriesConfigurationFile.isFile()) {
             try (FileReader fileReader = new FileReader(repositoriesConfigurationFile)) {
                 repositoriesConfiguration = DependenciesLoader.GSON.fromJson(fileReader, RepositoriesConfiguration.class);
+
+                DependenciesLoader.LOGGER.info("Loaded repositories configuration, adding {} repositories", repositoriesConfiguration.getRepositories().size());
             } catch (IOException e) {
-                LOGGER.error("Failed to read repositories configuration file");
+                DependenciesLoader.LOGGER.error("Failed to read repositories configuration file");
             }
+        }  else {
+            DependenciesLoader.LOGGER.info("Didn't find any repositories configuration");
         }
 
         List<RepositoryConfiguration> configurationRepositories = repositoriesConfiguration.getRepositories();
 
-        List<JkRepo> repoSet = new ArrayList<>(3 + configurationRepositories.size());
-        repoSet.addAll(List.of(
-                JkRepo.ofLocal(),
-                JkRepo.ofMavenCentral(),
-                JkRepo.ofMavenOssrhPublicDownload()
-        ));
-
-        for (RepositoryConfiguration repositoryConfiguration : configurationRepositories) {
-            String url = repositoryConfiguration.getUrl();
-            String username = repositoryConfiguration.getUsername();
-            String password = repositoryConfiguration.getPassword();
-
-            JkRepo repository = JkRepo.of(url);
-
-            LOGGER.info("Added repository {}", url);
-
-            repoSet.add(repository);
-
-            if (username == null || password == null || username.isEmpty() || password.isEmpty()) {
-                continue;
-            }
-
-            repository.setCredentials(username, password);
-        }
-
-        JkDependencyResolver resolver = JkDependencyResolver.of(JkRepoSet.of(repoSet));
-        resolver.parameters.setConflictResolver(JkResolutionParameters.JkConflictResolver.LATEST_VERSION);
-
+        // 3. Find dependencies in files
         Set<String> allDependencies = new HashSet<>();
         for (DependencyConfiguration configuration : allLoadedConfigurations) {
             allDependencies.addAll(configuration.getDependencies());
@@ -216,13 +212,13 @@ public class DependenciesLoader {
         for (String dependency : allDependencies) {
             String[] split = dependency.split(":");
             if (split.length != 3) {
-                LOGGER.error("Invalid dependency: {}", dependency);
+                DependenciesLoader.LOGGER.error("Invalid dependency: {}", dependency);
                 continue;
             }
 
             String dependencyWithoutVersion = split[0] + ":" + split[1];
             if (dependenciesWithoutVersion.contains(dependencyWithoutVersion)) {
-                LOGGER.error("Duplicated dependency found: {}", dependencyWithoutVersion);
+                DependenciesLoader.LOGGER.error("Duplicated dependency found: {}", dependencyWithoutVersion);
                 continue;
             }
 
@@ -230,7 +226,65 @@ public class DependenciesLoader {
             dependencyVersion.put(dependencyWithoutVersion, split[2]);
         }
 
-        List<JkDependency> dependenciesToResolve = new ArrayList<>();
+        // 4. Setup resolver
+        RepositorySystemSupplier supplier = new RepositorySystemSupplier();
+        RepositorySystem repoSystem = supplier.getRepositorySystem();
+
+        DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
+
+        LocalRepository localRepo = new LocalRepository(localRepositoryFolder.toPath());
+        session.setLocalRepositoryManager(repoSystem.newLocalRepositoryManager(session, localRepo));
+
+        session.setChecksumPolicy(RepositoryPolicy.CHECKSUM_POLICY_FAIL);
+        session.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_ALWAYS);
+        session.setConfigProperty("aether.connector.basic.threads", 8);
+
+        // Add some logging on download
+        session.setRepositoryListener(new AbstractRepositoryListener() {
+            private final Map<String, Long> durationCache = new HashMap<>();
+
+            @Override
+            public void artifactDownloading(RepositoryEvent event) {
+                Artifact artifact = event.getArtifact();
+                String fullName = artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getBaseVersion() + "." + artifact.getExtension();
+                this.durationCache.put(fullName, System.currentTimeMillis());
+            }
+
+            @Override
+            public void artifactDownloaded(RepositoryEvent event) {
+                Artifact artifact = event.getArtifact();
+                String fullName = artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getBaseVersion() + "." + artifact.getExtension();
+                long duration = System.currentTimeMillis() - this.durationCache.getOrDefault(fullName, System.currentTimeMillis());
+                DependenciesLoader.LOGGER.info("Downloaded {} of {}:{} from {} in {} ms", artifact.getExtension(), artifact.getArtifactId(), artifact.getBaseVersion(), event.getRepository().getId(), duration);
+            }
+        });
+
+        List<RemoteRepository> repos = new ArrayList<>();
+        repos.add(new RemoteRepository.Builder("central (repo.maven.apache.org)", DependenciesLoader.DEFAULT_REPO_TYPE, "https://repo1.maven.org/maven2/").build());
+        repos.add(new RemoteRepository.Builder("oss-snapshots (s01.oss.sonatype.org)", DependenciesLoader.DEFAULT_REPO_TYPE, "https://central.sonatype.com/repository/maven-snapshots/").build());
+
+        for (RepositoryConfiguration repositoryConfiguration : configurationRepositories) {
+            String url = repositoryConfiguration.getUrl();
+            String id = DependenciesLoader.extractDomain(url);
+            Authentication auth = null;
+
+            if (repositoryConfiguration.getUsername() != null && repositoryConfiguration.getPassword() != null) {
+                auth = new AuthenticationBuilder()
+                        .addUsername(repositoryConfiguration.getUsername())
+                        .addPassword(repositoryConfiguration.getPassword())
+                        .build();
+            }
+
+            repos.add(new RemoteRepository.Builder(id, DependenciesLoader.DEFAULT_REPO_TYPE, url)
+                    .setAuthentication(auth)
+                    .build());
+        }
+
+        // 5. Resolve dependencies
+        CollectRequest collect = new CollectRequest();
+        for (RemoteRepository repository : repos) {
+            collect.addRepository(repository);
+        }
 
         for (String dependency : dependenciesWithoutVersion) {
             String[] split = dependency.split(":");
@@ -242,7 +296,7 @@ public class DependenciesLoader {
             File groupFolder = new File(dependenciesDirectory, groupFolderPath);
             if (!groupFolder.exists()) {
                 if (!groupFolder.mkdirs()) {
-                    LOGGER.error("Could not create directory {}", groupFolder.getAbsolutePath());
+                    DependenciesLoader.LOGGER.error("Could not create directory {}", groupFolder.getAbsolutePath());
                     continue;
                 }
             }
@@ -250,7 +304,7 @@ public class DependenciesLoader {
             File artifactFolder = new File(groupFolder, artifactId);
             if (!artifactFolder.exists()) {
                 if (!artifactFolder.mkdirs()) {
-                    LOGGER.error("Could not create directory {}", artifactFolder.getAbsolutePath());
+                    DependenciesLoader.LOGGER.error("Could not create directory {}", artifactFolder.getAbsolutePath());
                     continue;
                 }
             }
@@ -266,36 +320,46 @@ public class DependenciesLoader {
                         continue;
                     }
 
-                    LOGGER.error("Could not import library {}:{}, as it is already provided by the server with version {}", dependency, neededVersion, foundFiles[0].getName());
+                    DependenciesLoader.LOGGER.error("Could not import library {}:{}, as it is already provided by the server with version {}", dependency, neededVersion, foundFiles[0].getName());
                     continue;
                 }
             }
 
-            dependenciesToResolve.add(JkCoordinateDependency.of(dependency, neededVersion));
+            DependenciesLoader.LOGGER.info("Adding dependency {}:{}", dependency, neededVersion);
+
+            collect.addDependency(new Dependency(new DefaultArtifact(dependency + ":" + neededVersion), "compile"));
         }
 
-        LOGGER.info("Resolving {} dependencies...", dependenciesToResolve.size());
+        // 6. Cleanup dependency folder
+        DependenciesLoader.clear(dependenciesDirectory);
 
-        JkDependencySet dependencySet = JkDependencySet.of(dependenciesToResolve);
-        JkResolveResult result = resolver.resolve(dependencySet);
-        JkResolveResult.JkErrorReport errorReport = result.getErrorReport();
-        if (errorReport.hasErrors()) {
-            LOGGER.error("Could not resolve dependencies:\n{}", errorReport);
+        // 7. Resolve dependencies
+        DependencyRequest request = new DependencyRequest(collect, null);
+        DependencyResult result;
+
+        try {
+            result = repoSystem.resolveDependencies(session, request);
+        } catch (DependencyResolutionException e) {
+            DependenciesLoader.LOGGER.error("Could not resolve dependencies:\n{}", e.getMessage());
             return null;
         }
 
+        System.out.printf("Resolved %d artifacts%n", result.getArtifactResults().size());
+
         Path targetPath = dependenciesDirectory.toPath();
 
-        return result.getFiles()
-                .getEntries()
+        // 8. Copy from the local repo to the dependency folder
+        return result.getArtifactResults()
                 .stream()
-                .map(path -> {
-                    Path targetFilePath = targetPath.resolve(path.getFileName());
+                .map(artifactResult -> {
+                    Artifact artifact = artifactResult.getArtifact();
+                    Path filePath = artifact.getPath();
+                    Path targetFilePath = targetPath.resolve(filePath.getFileName());
 
                     try {
-                        Files.copy(path, targetFilePath, StandardCopyOption.REPLACE_EXISTING);
+                        Files.copy(filePath, targetFilePath, StandardCopyOption.REPLACE_EXISTING);
                     } catch (IOException e) {
-                        LOGGER.error("Failed to copy {}: {}", path, e.getMessage());
+                        DependenciesLoader.LOGGER.error("Failed to copy {}: {}", filePath, e.getMessage());
                         return null;
                     }
 
@@ -307,7 +371,7 @@ public class DependenciesLoader {
                     try {
                         return uri.toURL();
                     } catch (MalformedURLException e) {
-                        LOGGER.error("Failed to load {}: {}", uri, e.getMessage());
+                        DependenciesLoader.LOGGER.error("Failed to load {}: {}", uri, e.getMessage());
                     }
 
                     return null;
@@ -316,14 +380,30 @@ public class DependenciesLoader {
                 .toList();
     }
 
-    private static void delete(File file) {
+    private static void clear(File file) {
         if (file.isDirectory()) {
             for (File child : Objects.requireNonNull(file.listFiles())) {
-                delete(child);
+                DependenciesLoader.clear(child);
+
+                // Delete the file or the empty directory
+                if ((!child.isDirectory() || Objects.requireNonNull(child.listFiles()).length == 0) && !child.delete()) {
+                    DependenciesLoader.LOGGER.error("Could not delete {}", child.getAbsolutePath());
+                }
             }
         }
-        if (!file.delete()) {
-            LOGGER.error("Could not delete {}", file.getAbsolutePath());
+    }
+
+    private static String extractDomain(String url) {
+        try {
+            URI uri = new URI(url);
+            String host = uri.getHost();
+            if (host != null) {
+                return host.replaceFirst("^www\\.", "");
+            }
+
+            return url;
+        } catch (URISyntaxException e) {
+            return url; // fallback to the raw URL
         }
     }
 
