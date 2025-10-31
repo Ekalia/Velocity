@@ -21,7 +21,6 @@ import com.velocitypowered.proxy.util.VelocityProperties;
 import fr.ekalia.dependencyloader.DependenciesLoader;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakDetector.Level;
-
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.text.DecimalFormat;
