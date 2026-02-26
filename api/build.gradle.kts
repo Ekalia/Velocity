@@ -81,7 +81,7 @@ tasks {
 
 publishing {
     publications {
-        create<MavenPublication>("maven") {
+        create<MavenPublication>("velocity-api") {
             from(components["java"])
         }
     }
