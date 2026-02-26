@@ -1,7 +1,6 @@
 plugins {
     `java-library`
     `maven-publish`
-    id("velocity-publish")
 }
 
 java {
@@ -79,3 +78,12 @@ tasks {
         )
     }
 }
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
+}
+
