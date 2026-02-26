@@ -132,7 +132,7 @@ dependencies {
 
 publishing {
     publications {
-        create<MavenPublication>("maven") {
+        create<MavenPublication>("velocity-proxy") {
             artifact(tasks.shadowJar.get()) {
                 classifier = null
             }
