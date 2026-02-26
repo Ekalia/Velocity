@@ -118,6 +118,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
 import net.kyori.adventure.audience.MessageType;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.identity.Identity;
@@ -825,40 +827,35 @@ public class ConnectedPlayer implements MinecraftConnectionAssociation, Player, 
                     // Impossible/nonsensical cases
                     case ALREADY_CONNECTED -> logger.error("{}: already connected to {}", this,
                             status.getAttemptedConnection().getServerInfo().getName());
-                    case CONNECTION_IN_PROGRESS, CONNECTION_CANCELLED -> {
-                      Component fallbackMsg = res.getMessageComponent();
-                      if (fallbackMsg == null) {
-                        fallbackMsg = friendlyReason;
-                      }
-                      disconnect(status.getReasonComponent().orElse(fallbackMsg));
-                    }
+                    // Fatal case
+                    case CONNECTION_IN_PROGRESS, CONNECTION_CANCELLED ->
+                            disconnect(status.getReasonComponent().orElse(friendlyReason));
                     case SERVER_DISCONNECTED -> {
-                      Component reason = status.getReasonComponent()
-                            .orElse(ConnectionMessages.INTERNAL_SERVER_CONNECTION_ERROR);
-                      handleConnectionException(res.getServer(),
-                            DisconnectPacket.create(reason, getProtocolVersion(), connection.getState()),
-                            ((Impl) status).isSafe());
+                        Component reason = status.getReasonComponent()
+                                .orElse(ConnectionMessages.INTERNAL_SERVER_CONNECTION_ERROR);
+                        handleConnectionException(res.getServer(),
+                                DisconnectPacket.create(reason, getProtocolVersion(), connection.getState()),
+                                ((Impl) status).isSafe());
                     }
                     case SUCCESS -> {
-                      Component requestedMessage = res.getMessageComponent();
-                      if (requestedMessage == null) {
-                        requestedMessage = friendlyReason;
-                      }
-                      if (requestedMessage != Component.empty()) {
-                        sendMessage(requestedMessage);
-                      }
+                        Consumer<Player> requestedConsumer = res.getConsumer();
+
+                        if (requestedConsumer == null) {
+                            requestedConsumer = player -> player.sendMessage(friendlyReason);
+                        }
+
+                        requestedConsumer.accept(this);
                     }
                     default -> {
-                      // The only remaining value is successful (no need to do anything!)
                     }
+                    // The only remaining value is successful (no need to do anything!)
                   }
-                }, connection.eventLoop());
-        case Notify res -> {
-          if (event.kickedDuringServerConnect() && previousConnection != null) {
-            sendMessage(res.getMessageComponent());
-          } else {
-            disconnect(res.getMessageComponent());
-          }
+          }, connection.eventLoop());
+      } else if (event.getResult() instanceof final Notify res) {
+        if (event.kickedDuringServerConnect() && previousConnection != null) {
+          sendMessage(res.getMessageComponent());
+        } else {
+          disconnect(res.getMessageComponent());
         }
         // In case someone gets creative, assume we want to disconnect the player.
         default -> disconnect(friendlyReason);

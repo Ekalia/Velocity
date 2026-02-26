@@ -12,10 +12,12 @@ import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.event.annotation.AwaitingEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
-import java.util.Optional;
 import net.kyori.adventure.text.Component;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
+import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Fired when a player is kicked from a server. You may either allow Velocity to kick the player
@@ -165,12 +167,12 @@ public final class KickedFromServerEvent implements
    */
   public static final class RedirectPlayer implements ServerKickResult {
 
-    private final Component message;
+    private final Consumer<Player> consumer;
     private final RegisteredServer server;
 
-    private RedirectPlayer(final RegisteredServer server, final @Nullable Component message) {
+    private RedirectPlayer(final RegisteredServer server, final @Nullable Consumer<Player> consumer) {
       this.server = Preconditions.checkNotNull(server, "server");
-      this.message = message;
+      this.consumer = consumer;
     }
 
     @Override
@@ -187,14 +189,20 @@ public final class KickedFromServerEvent implements
       return server;
     }
 
+    public @Nullable Consumer<Player> getConsumer() {
+      return consumer;
+    }
+
     /**
-     * Returns the message that will be sent to the player after redirection.
-     * This may be {@code null} if the kick reason should be reused or nothing should be sent.
+     * Creates a new redirect result to forward the player to the specified {@code server}.
+     * The specified {@code consumer} will be executed after the redirection.
      *
-     * @return the message component, or {@code null}
+     * @param server the server to send the player to
+     * @param consumer the consumer that will be executed after redirecting
+     * @return the redirect result
      */
-    public @Nullable Component getMessageComponent() {
-      return message;
+    public static RedirectPlayer create(final @NonNull RegisteredServer server, final Consumer<Player> consumer) {
+      return new RedirectPlayer(server, consumer);
     }
 
     /**
@@ -207,7 +215,11 @@ public final class KickedFromServerEvent implements
      * @return the redirect result
      */
     public static RedirectPlayer create(final @NonNull RegisteredServer server, final Component message) {
-      return new RedirectPlayer(server, message);
+      return new RedirectPlayer(server, movePlayer -> {
+        if (message!=Component.empty()) {
+          movePlayer.sendMessage(message);
+        }
+      });
     }
 
     /**
@@ -223,8 +235,8 @@ public final class KickedFromServerEvent implements
 
     @Override
     public String toString() {
-      return "KickedFromServerEvent#RedirectPlayer{isAllowed=%s,message=%s,server=%s}"
-              .formatted(isAllowed(), this.message, this.server);
+      return "KickedFromServerEvent#RedirectPlayer{isAllowed=%s,consumer=%s,server=%s}"
+              .formatted(isAllowed(), this.consumer, this.server);
     }
   }
 
