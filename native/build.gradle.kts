@@ -1,6 +1,5 @@
 plugins {
     `java-library`
-    id("velocity-publish")
 }
 
 dependencies {

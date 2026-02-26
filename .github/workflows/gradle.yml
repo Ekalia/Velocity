@@ -31,3 +31,8 @@ jobs:
         cache: "" # namespace handles this
     - name: Build with Gradle
       run: ./gradlew --init-script=/tmp/init.gradle build
+    - name: Publish to nexus
+      run: ./gradlew publish
+      env:
+        NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+        NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}

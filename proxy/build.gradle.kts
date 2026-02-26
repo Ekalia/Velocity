@@ -129,3 +129,12 @@ dependencies {
     annotationProcessor(libs.auto.service)
     annotationProcessor(libs.log4j.core)
 }
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            artifact(tasks["shadowJar"])
+        }
+    }
+}

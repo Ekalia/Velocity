@@ -1,7 +1,6 @@
 plugins {
     `java-library`
     `maven-publish`
-    id("velocity-publish")
 }
 
 java {
@@ -82,3 +81,12 @@ tasks {
         o.addStringOption("Xdoclint:none", "-quiet")
     }
 }
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
+}
+
