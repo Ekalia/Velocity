@@ -182,6 +182,10 @@ public final class KickedFromServerEvent implements
     public @Nullable Consumer<Player> getConsumer() {
       return consumer;
     }
+    
+    public @Nullable Component getMessageComponent() {
+      return message
+    }
 
     /**
      * Creates a new redirect result to forward the player to the specified {@code server}.
