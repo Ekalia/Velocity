@@ -1,13 +1,12 @@
 plugins {
     `java-library`
-    id("velocity-checkstyle") apply false
+    `maven-publish`
     id("velocity-spotless") apply false
 }
 
 subprojects {
     apply<JavaLibraryPlugin>()
 
-    apply(plugin = "velocity-checkstyle")
     apply(plugin = "velocity-spotless")
 
     java {
@@ -25,6 +24,21 @@ subprojects {
         targets.all {
             testTask.configure {
                 reports.junitXml.required = true
+            }
+        }
+    }
+}
+
+allprojects {
+    apply(plugin = "maven-publish")
+
+    publishing {
+        repositories {
+            maven("https://nexus.ekalia.fr/repository/ekalia/") {
+                credentials {
+                    username = System.getenv("NEXUS_USERNAME")
+                    password = System.getenv("NEXUS_PASSWORD")
+                }
             }
         }
     }

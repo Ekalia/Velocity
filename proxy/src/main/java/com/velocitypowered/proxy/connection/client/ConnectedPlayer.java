@@ -830,7 +830,7 @@ public class ConnectedPlayer implements MinecraftConnectionAssociation, Player, 
                         requestedMessage = friendlyReason;
                       }
                       if (requestedMessage != Component.empty()) {
-                        sendMessage(requestedMessage);
+                      sendMessage(requestedMessage);
                       }
                     }
                     default -> {
