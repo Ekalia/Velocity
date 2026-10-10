@@ -136,11 +136,6 @@ public final class KickedFromServerEvent implements
       return true;
     }
 
-    /**
-     * Returns the reason shown to the player upon disconnection.
-     *
-     * @return the reason component
-     */
     public Component getReasonComponent() {
       return component;
     }
@@ -180,15 +175,10 @@ public final class KickedFromServerEvent implements
       return false;
     }
 
-    /**
-     * Returns the target server to which the player should be redirected.
-     *
-     * @return the server to redirect to
-     */
     public @NonNull RegisteredServer getServer() {
       return server;
     }
-
+    
     public @Nullable Consumer<Player> getConsumer() {
       return consumer;
     }
@@ -258,12 +248,6 @@ public final class KickedFromServerEvent implements
       return false;
     }
 
-    /**
-     * Returns the message that will be sent to the player after redirection.
-     * This may be {@code null} if the kick reason should be reused or nothing should be sent.
-     *
-     * @return the message component, or {@code null}
-     */
     public Component getMessageComponent() {
       return message;
     }
