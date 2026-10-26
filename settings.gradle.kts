@@ -5,6 +5,16 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://nexus.ekalia.fr/repository/ekalia/") {
+            name = "ekalia"
+            credentials {
+                username = System.getenv("NEXUS_USERNAME") ?: providers.gradleProperty("ekaliaNexusUser").orNull
+                password = System.getenv("NEXUS_PASSWORD") ?: providers.gradleProperty("ekaliaNexusPassword").orNull
+            }
+            content {
+                includeGroup("fr.ekalia")
+            }
+        }
     }
 }
 

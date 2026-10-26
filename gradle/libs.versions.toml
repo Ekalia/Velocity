@@ -1,5 +1,4 @@
 [versions]
-apache-resolver = "2.0.13"
 configurate3 = "3.7.3"
 configurate4 = "4.2.0"
 flare = "2.0.1"
@@ -15,7 +14,7 @@ spotless = "com.diffplug.spotless:8.10.2"
 [libraries]
 adventure-bom = "net.kyori:adventure-bom:5.2.0"
 adventure-text-serializer-json-legacy-impl = "net.kyori:adventure-text-serializer-json-legacy-impl:5.2.0"
-apache-resolver = { group = "org.apache.maven.resolver", name = "maven-resolver-supplier-mvn3", version.ref = "apache-resolver" }
+ekalia-dependenciesloader = "fr.ekalia:dependenciesloader-core:3.0.0-SNAPSHOT"
 asm = "org.ow2.asm:asm:9.10.1"
 auto-service = "com.google.auto.service:auto-service:1.1.1"
 auto-service-annotations = "com.google.auto.service:auto-service-annotations:1.1.1"

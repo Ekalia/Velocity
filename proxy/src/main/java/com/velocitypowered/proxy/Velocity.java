@@ -18,12 +18,17 @@
 package com.velocitypowered.proxy;
 
 import com.velocitypowered.proxy.util.VelocityProperties;
-import fr.ekalia.dependencyloader.DependenciesLoader;
+import fr.ekalia.dependenciesloader.DependenciesLoader;
+import fr.ekalia.dependenciesloader.DependenciesLoadingException;
+import fr.ekalia.dependenciesloader.LoaderLogger;
+import fr.ekalia.dependenciesloader.StartupLog;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakDetector.Level;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Path;
 import java.text.DecimalFormat;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,7 +69,7 @@ public class Velocity {
    * @param args the arguments to the proxy
    */
   public static void main(String... args) throws InterruptedException {
-    URL[] urls = DependenciesLoader.process();
+    URL[] urls = loadDependencies();
 
     final ClassLoader parentClassLoader = Velocity.class.getClassLoader();
     Velocity.mainClassLoader = new URLClassLoader(urls, parentClassLoader);
@@ -87,6 +92,54 @@ public class Velocity {
     thread.start();
 
     thread.join();
+  }
+
+  /**
+   * Loads the plugins' dependencies, exiting if they could not be loaded. The output is also
+   * saved to {@code logs/dependencies.log}.
+   */
+  private static URL[] loadDependencies() {
+    LoaderLogger log4j = new LoaderLogger() {
+      @Override
+      public void info(String message) {
+        logger.info(message);
+      }
+
+      @Override
+      public void warn(String message) {
+        logger.warn(message);
+      }
+
+      @Override
+      public void error(String message) {
+        logger.error(message);
+      }
+    };
+
+    List<URL> files;
+    try (StartupLog log = StartupLog.open(Path.of("logs", "dependencies.log"), log4j)) {
+      try {
+        files = DependenciesLoader.builder()
+            .dependenciesDirectory(Path.of("dependencies"))
+            .pluginsDirectory(Path.of("plugins"))
+            .fallbackLocalRepository(Path.of("local_repository"))
+            .logger(log)
+            .build()
+            .load();
+      } catch (DependenciesLoadingException e) {
+        log.error("Failed to load dependencies: " + e.getMessage());
+        files = null;
+      } catch (RuntimeException | Error e) {
+        log.error("Failed to load dependencies", e);
+        throw e;
+      }
+    }
+
+    if (files == null) {
+      System.exit(1);
+    }
+
+    return files.toArray(new URL[0]);
   }
 
   private static void start(String... args) {
