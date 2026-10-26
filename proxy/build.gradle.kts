@@ -133,8 +133,8 @@ dependencies {
 publishing {
     publications {
         create<MavenPublication>("maven") {
+            // The shadow plugin already adds the -all jar to the java component
             from(components["java"])
-            artifact(tasks["shadowJar"])
         }
     }
 }
